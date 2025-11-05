@@ -1,9 +1,53 @@
+/************************************************************************/
+/**
+
+   Program:    profitcore
+   \file       profitcore.c
+   
+   \version    V1.0
+   \date       05.11.25   
+   \brief      Identify protein core from ProFit iterative fit
+   
+   \copyright  (c) Prof Andrew C. R. Martin 2025
+   \author     Prof. Andrew C. R. Martin
+   \par
+               abYinformatics, Ltd
+               www.bioinf.org.uk
+   \par
+               andrew@bioinf.org.uk
+               andrew@abyinformatics.com
+               
+**************************************************************************
+
+   This code is released under the GPL V3.0
+
+**************************************************************************
+
+   Description:
+   ============
+
+**************************************************************************
+
+   Usage:
+   ======
+
+**************************************************************************
+
+   Revision History:
+   =================
+-  V1.0   05.11.25  Original   By: ACRM
+
+*************************************************************************/
+/* Includes
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include "bioplib/macros.h"
 #include "bioplib/pdb.h"
 
 /************************************************************************/
+/* Defines and macros
+*/
 typedef struct _zone
 {
    int  start[2],
@@ -16,70 +60,130 @@ typedef struct _zone
 #define MAXBUFF 320
 
 /************************************************************************/
+/* Globals
+*/
+
+/************************************************************************/
+/* Prototypes
+*/
 ZONE *ReadProFitZones(FILE *fp);
 void PrintZones(FILE *fp, ZONE *zones);
 BOOL MapZones(ZONE *zones, int strucNum, PDB *pdb);
 void AnnotateZones(ZONE *zones, int strucNum, PDB *pdb);
+BOOL WriteFile(PDB *pdb, char *filename);
 void Die(char *msg, char *submsg, int status);
+void Usage(void);
+BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
+                  char *pdbFile1, char *pdbFile2,
+                  char *outFile1, char *outFile2);
 
 /************************************************************************/
+/*>int main(int argc, char **argv)
+   -------------------------------
+*//**
+   Main program for core finding
+   
+-  05.11.25 Original   By: ACRM
+*/
 int main(int argc, char **argv)
 {
    ZONE *zones = NULL;
    FILE *fp, *fpP1, *fpP2;
    int natoms;
    PDB *pdb1, *pdb2;
+   char zoneFile[MAXBUFF],
+        pdbFile1[MAXBUFF],
+        pdbFile2[MAXBUFF],
+        outFile1[MAXBUFF],
+        outFile2[MAXBUFF];
 
-   if((fp = fopen("zones.txt", "r"))==NULL)
-      Die("Unable to open zones file: ", "zones.txt", 1);
-
-   if((fpP1 = fopen("pdb1yqv_0P.mar", "r"))==NULL)
-      Die("Unable to open first PDB input file: ", "pdb1yqv_0P.mar", 1);
-
-   if((pdb1 = blReadPDB(fpP1, &natoms))==NULL)
-      Die("No atoms read from first PDB input file: ", "pdb1yqv_0P.mar", 1);
-
-   if((fpP2 = fopen("pdb8fab_0.mar", "r"))==NULL)
-      Die("Unable to open second PDB input file: ", "pdb8fab_0.mar", 1);
+   if(ParseCmdLine(argc, argv, zoneFile, pdbFile1, pdbFile2,
+                   outFile1, outFile2))
+   {
+      if((fp = fopen(zoneFile, "r"))==NULL)
+         Die("Unable to open zones file: ", zoneFile, 1);
+      if((zones = ReadProFitZones(fp))==NULL)
+         Die("Unable to read zones from the zones file", NULL, 1);
       
-   if((pdb2 = blReadPDB(fpP2, &natoms))==NULL)
-      Die("No atoms read from second PDB input file: ", "pdb8fab_0.mar", 1);
-   
-   if((zones = ReadProFitZones(fp))==NULL)
-      Die("Unable to read zones from the zones file", NULL, 1);
-   
-   if(!MapZones(zones, 0, pdb1))
-      Die("No memory for mapping zones", NULL, 1);
-
-   if(!MapZones(zones, 1, pdb2))
-      Die("No memory for mapping zones", NULL, 1);
+      if((fpP1 = fopen(pdbFile1, "r"))==NULL)
+         Die("Unable to open first PDB input file: ", pdbFile1, 1);
+      if((pdb1 = blReadPDB(fpP1, &natoms))==NULL)
+         Die("No atoms read from first PDB input file: ", pdbFile1, 1);
       
-   AnnotateZones(zones, 0, pdb1);
-   AnnotateZones(zones, 1, pdb2);
-   
-   PrintZones(stdout, zones);
+      if((fpP2 = fopen(pdbFile2, "r"))==NULL)
+         Die("Unable to open second PDB input file: ", pdbFile2, 1);
+      if((pdb2 = blReadPDB(fpP2, &natoms))==NULL)
+         Die("No atoms read from second PDB input file: ", pdbFile2, 1);
+      
+      if(!MapZones(zones, 0, pdb1))
+         Die("No memory for mapping zones", NULL, 1);
+      if(!MapZones(zones, 1, pdb2))
+         Die("No memory for mapping zones", NULL, 1);
+
+      PrintZones(stdout, zones);
+
+      if(outFile1[0] != '\0')
+      {
+         AnnotateZones(zones, 0, pdb1);
+         if(!WriteFile(pdb1, outFile1))
+            Die("Unable to write PDB file: ", outFile1, 1);
+      }
+      
+      if(outFile2[0] != '\0')
+      {
+         AnnotateZones(zones, 1, pdb2);
+         if(!WriteFile(pdb2, outFile2))
+            Die("Unable to write PDB file: ", outFile2, 1);
+      }
+   }
+   else
+   {
+      Usage();
+   }
    
    return(0);
 }
 
 
 /************************************************************************/
+/*>void PrintZones(FILE *fp, ZONE *zones)
+   --------------------------------------
+*//**
+
+   \param[in]     *fp    File pointer for printing
+   \param[in]     *zones Linked list of zones
+
+   Prints the converted zone information
+   
+-  05.11.25 Original   By: ACRM
+*/
 void PrintZones(FILE *fp, ZONE *zones)
 {
    ZONE *z;
    
    for(z=zones; z!=NULL; NEXT(z))
    {
-      fprintf(fp, "%s (%d) to %s (%d) with %s (%d) to %s (%d)\n",
-              z->startresid[0], z->start[0],
-              z->stopresid[0],  z->stop[0],
-              z->startresid[1], z->start[1],
-              z->stopresid[1],  z->stop[1]);
+      fprintf(fp, "%s to %s with %s to %s\n",
+              z->startresid[0],
+              z->stopresid[0], 
+              z->startresid[1],
+              z->stopresid[1]);
    }
 }
 
 
 /************************************************************************/
+/*>ZONE *ReadProFitZones(FILE *fp)
+   -------------------------------
+*//**
+
+   \param[in]    *fp    File pointer for zones file
+
+   Reads the zone information from the file which is simply cut and
+   paste from the ProFit status message
+
+-  05.11.25 Original   By: ACRM
+*/
 ZONE *ReadProFitZones(FILE *fp)
 {
    ZONE *zones = NULL,
@@ -124,6 +228,18 @@ ZONE *ReadProFitZones(FILE *fp)
 
 
 /************************************************************************/
+/*>BOOL MapZones(ZONE *zones, int strucNum, PDB *pdb)
+   --------------------------------------------------
+*//**
+
+   \param[in,out] *zones    Linked list of zones
+   \param[in]     strucNum  The structure being mapped (0 or 1)
+   \param[in]     pdb       PDB linked list for the structure
+
+   Maps the sequentially numbered zones to PDB residue IDs
+   
+-  05.11.25 Original   By: ACRM
+*/
 BOOL MapZones(ZONE *zones, int strucNum, PDB *pdb)
 {
    ZONE *z;
@@ -160,10 +276,26 @@ BOOL MapZones(ZONE *zones, int strucNum, PDB *pdb)
 
    FREE(idx);
    FREELIST(pdbca, PDB);
+
+   return(TRUE);
 }
 
 
 /************************************************************************/
+/*>void AnnotateZones(ZONE *zones, int strucNum, PDB *pdb)
+   -------------------------------------------------------
+*//**
+
+   \param[in]     *zones    Linked list of zones after mapping
+   \param[in]     strucNum  The structure being mapped (0 or 1)
+   \param[in,out] *pdb      PDB linked list     
+
+   Updates the temperature factor column in the PDB file such that
+   all atoms are initially set to zero and then those in zones are
+   set to 1.0
+
+-  05.11.25 Original   By: ACRM
+*/
 void AnnotateZones(ZONE *zones, int strucNum, PDB *pdb)
 {
    ZONE *z;
@@ -194,6 +326,44 @@ void AnnotateZones(ZONE *zones, int strucNum, PDB *pdb)
 
 
 /************************************************************************/
+/*>BOOL WriteFile(PDB *pdb, char *filename)
+   ----------------------------------------
+*//**
+
+   \param[in]     *pdb       PDB linked list
+   \param[in]     *filename  Name of output file to create
+   
+   Simple wrapper to open a file and write a PDB linked list to it
+   
+-  05.11.25 Original   By: ACRM
+*/
+BOOL WriteFile(PDB *pdb, char *filename)
+{
+   FILE *fp = NULL;
+   
+   if((fp=fopen(filename, "w"))!=NULL)
+   {
+      blWritePDB(fp, pdb);
+      fclose(fp);
+      return(TRUE);
+   }
+   return(FALSE);
+}
+
+
+/************************************************************************/
+/*>void Die(char *msg, char *submsg, int status)
+   ---------------------------------------------
+*//**
+
+   \param[in]     *msg     Main error message
+   \param[in]     *submsg  Optional subsiduary message
+   \param[in]     status   Exit status
+   
+   Die with error message
+
+-  05.11.25 Original   By: ACRM
+*/
 void Die(char *msg, char *submsg, int status)
 {
    if(submsg != NULL)
@@ -202,4 +372,121 @@ void Die(char *msg, char *submsg, int status)
       fprintf(stderr, "Error (zones2ssap) %s\n",msg);
 
    exit(status);
+}
+
+/************************************************************************/
+/*>void Usage(void)
+   ----------------
+*//**
+
+   Usage message
+
+-  05.11.25 Original   By: ACRM
+*/
+void Usage(void)
+{
+   printf("\nprofitcore V1.0 (c) 2025, Prof Andrew C.R. Martin, \
+abYinformatics\n");
+   printf("\nUsage: profitcore [-o1 file] [-o2 file] zoneFile \
+pdbfile1 pdbfile2\n");
+   printf("\n");
+
+   printf("       -o1 Specify first output PDB file\n");
+   printf("       -o2 Specify second output PDB file\n");
+   printf("\n");
+
+   printf("profitcore converts the sequentially numbered zones output \
+by ProFit into\n");
+   printf("residue identifiers and, optionally, generates PDB files \
+with the B-value\n");
+   printf("used to indicate residues that are in those zones.\n");
+   printf("\n");
+   printf("By running ProFit with the commands:\n");
+   printf("   ALIGN\n");
+   printf("   ITER\n");
+   printf("   FIT\n");
+   printf("   STATUS\n");
+   printf("it will perform an iterative structural alignment creating \
+zones based\n");
+   printf("on a dynamic programming alignment discarding residue pairs \
+with C-alphas\n");
+   printf("more than 3A apart, thus identifying a conserved core. You \
+can alter the\n");
+   printf("3A threshold by providing a distance as a parameter to the \
+ITER command.\n");
+   printf("Thus ITER 2.0 would identify a stricter core, while ITER 4.0 \
+would\n");
+   printf("allow more flexibility.\n\n");
+}
+
+/************************************************************************/
+/*>BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
+                     char *pdbFile1, char *pdbFile2,
+                     char *outFile1, char *outFile2)
+   --------------------------------------------------------
+*//**
+
+   \param[in]     argc      Argument count
+   \param[in]     argv      Arguments
+   \param[out]    zoneFile  The name of the zone file
+   \param[out]    pdbFile1  The name of the 1st PDB file
+   \param[out]    pdbFile2  The name of the 2nd PDB file
+   \param[out]    outFile1  The name of the (optional) 1st output file
+   \param[out]    outFile2  The name of the (optional) 2nd output file
+
+   Parses the command line
+
+-  05.11.25 Original   By: ACRM
+*/
+BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
+                  char *pdbFile1, char *pdbFile2,
+                  char *outFile1, char *outFile2)
+{
+   argc--;
+   argv++;
+
+   zoneFile[0]    =
+      pdbFile1[0] = pdbFile2[0] =
+      outFile1[0] = outFile2[0] = '\0';
+
+   while(argc)
+   {
+      if(argv[0][0] == '-')
+      {
+         switch(argv[0][1])
+         {
+         case 'o':
+            switch(argv[0][2])
+            {
+            case '1':
+               argc--; argv++;
+               strcpy(outFile1, argv[0]);
+               break;
+            case '2':
+               argc--; argv++;
+               strcpy(outFile2, argv[0]);
+               break;
+            default:
+               return(FALSE);
+            }
+            break;
+         case 'h':
+         default:
+            return(FALSE);
+         }
+      }
+      else
+      {
+         /* Check that there are 3 arguments left                       */
+         if(argc != 3)
+            return(FALSE);
+         /* Copy the file names                                         */
+         strcpy(zoneFile, argv[0]);
+         strcpy(pdbFile1, argv[1]);
+         strcpy(pdbFile2, argv[2]);
+         return(TRUE);
+      }
+      argc--; argv++;
+   }
+   return(FALSE);
 }

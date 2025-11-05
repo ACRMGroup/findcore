@@ -3,36 +3,25 @@
    Program:    findcore_Apr16
    File:       findcore_Apr16.c
    
-   Version:    V1.7
-   Date:       16.04.02
-   Function:   Find core from multiple structures  given the CORA alignment
+   Version:    V1.8
+   Date:       05.11.25
+   Function:   Find core from multiple structures given the CORA alignment
                file as a staring point
    
-   Copyright:  (c) Dr. Andrew C. R. Martin, UCL 1996-7
-   Author:     Dr. Andrew C. R. Martin
-   Modified:   Gabrielle Reeves
+   Copyright:  (c) Prof. Andrew C. R. Martin, UCL 1996-2025
+   Author:     Prof. Andrew C. R. Martin
+   Modified:   Gabby Marsden (nee Reeves)
    Address:    Biomolecular Structure & Modelling Unit,
                Department of Biochemistry & Molecular Biology,
                University College,
                Gower Street,
                London.
                WC1E 6BT.
-   Phone:      (Work) +44 020 7679 2198
-   EMail:      INTERNET: gabby@biochem.ucl.ac.uk
+   EMail:      andrew@bioinf.org.uk
                
 **************************************************************************
 
-   This program is not in the public domain, but it may be copied
-   according to the conditions laid out in the accompanying file
-   COPYING.DOC
-
-   The code may be modified as required, but any modifications must be
-   documented so that the person responsible can be identified. If someone
-   else breaks this code, I don't want to be blamed for code that does not
-   work! 
-
-   The code may not be sold commercially or included as part of a 
-   commercial product except as described in the file COPYING.DOC.
+   This program is released under the GPL V3
 
 **************************************************************************
 
@@ -57,7 +46,8 @@
                   e.g. 24-43:24-43 + 41-51:42-52 ==> 24-51:24-52
                   Fixed this by extending zones only if a residue
                   wasn't already in a zone.
-  V1.4  16.04.02  
+   V1.4...V1.7  16.04.02
+   V1.8  05.11.25 Updated for new biolib
 
 *************************************************************************/
 /* Includes
@@ -83,44 +73,48 @@
 #define MAXMALNPNO 50
 #define COMMENT
 
-#define TEST(obj)       if( obj == NULL ) printf("no memory for obj !\n");
-
+#define TEST(obj)  if( obj == NULL ) printf("no memory for obj !\n")
 #define ALLOC(x,y) do { (x) = (y *)malloc(sizeof(y)); TEST(x); } while(0)
-
 
 typedef struct _zone
 {
-   struct _zone *next, *prev;
+   struct _zone *next,
+                *prev;
    int start[MAXMALNPNO], 
        end[MAXMALNPNO];
 }  ZONE;
 
-/*  CORA - Line data for multiple alignment files  */
+/*  CORA - Line data for multiple alignment files                       */
+typedef struct
+{  /* data for each protein in the alignment                            */
+   char acid,
+        secstruct,
+        pdb[6];  
+}  Protdata;
 
-typedef struct { 
-                 /* data for each protein in the alignment*/
-                char acid, secstruct, pdb[6];  
-               }
-         Protdata;
+typedef struct
+{
+   int      alnpos,
+            conpos,
+            proaln,
+            colx,
+            coly,
+            score;
+   char     consecstruc;
+   /* Pointer defined to point to the first address in Protdata         */
+   Protdata *protdata_ptr;   
+}  Malndata;
 
-typedef struct  {
-                int    alnpos, conpos, proaln, colx, coly, score;
-                char   consecstruc;
-                /*Pointer defined to point to the first address in Protdata*/
-                Protdata *protdata_ptr;   
-		  }
-        Malndata;
-
-/*  general data for multiple alignment files  */
-    
-typedef struct  {
-  int       procnt, length; 		                    
-  char      title[50], proname[MAXMALNPNO][MAXCHAR];
- /*Pointer defined to point to the first address in Malndata*/
-  Malndata  *malndata_ptr;      
-}
-Malign;
-
+/*  general data for multiple alignment files                           */
+typedef struct
+{
+   int       procnt,
+             length; 		                    
+   char      title[50],
+             proname[MAXMALNPNO][MAXCHAR];
+   /* Pointer defined to point to the first address in Malndata         */
+   Malndata  *malndata_ptr;      
+}  Malign;
 
 /************************************************************************/
 /* Globals
@@ -156,94 +150,95 @@ BOOL SubsetZone(ZONE *z, ZONE *zones);
 /************************************************************************/
 int main(int argc, char **argv)
 {
-  char corafile[MAXBUFF];
-  FILE *corafp;
-  FILE *pdbfp;
-  Malign *maln_ptr;
-  int  numPdb;
-  int natoms[MAXMALNPNO];
-  int numProts;
-/*  int i=0; */
-  ZONE *zones;
-/*  ZONE *z; */
-  PDB *pdb[MAXMALNPNO];
-  REAL dcut = DEFAULT_CUT;
-  
-  if(ParseCmdLine(argc, argv, corafile, &dcut))
-    {
+   char   corafile[MAXBUFF];
+   FILE   *corafp;
+   FILE   *pdbfp;
+   Malign *maln_ptr;
+   int    numPdb;
+   int    natoms[MAXMALNPNO];
+   int    numProts;
+   ZONE   *zones;
+   PDB    *pdb[MAXMALNPNO];
+   REAL   dcut = DEFAULT_CUT;
+   
+   if(ParseCmdLine(argc, argv, corafile, &dcut))
+   {
       /* Open files                                                     */
       if((corafp=fopen(corafile,"r"))==NULL)
-	{
+      {
          fprintf(stderr,"Unable to open %s for reading\n",corafile);
          return(1);
       }
-
+      
       if((maln_ptr = ReadCORA(corafp)) == NULL)
       {
          fprintf(stderr,"No Zones read from %s\n",corafile);
          return(1);
       }
-     fclose(corafp);
-
-     /*calculate inital zones*/
-     zones = calcZone(maln_ptr);
-     numProts = maln_ptr->procnt;
-          
-      /* open and read the pdbfiles by taking the names from the cora file */
-      /*Open PDB files */
-
+      fclose(corafp);
+      
+      /* calculate inital zones                                         */
+      zones = calcZone(maln_ptr);
+      numProts = maln_ptr->procnt;
+      
+      /* open and read the pdbfiles by taking the names from the cora
+         file
+      */
       for(numPdb = 0; numPdb<maln_ptr->procnt; numPdb++)
-	{
-	  if((pdbfp=fopen(maln_ptr->proname[numPdb],"r"))==NULL)
-	    {
-	      fprintf(stderr,"Unable to open %s for \
-reading\n",maln_ptr->proname[numPdb]);
-	      return(1);
-	    }
+      {
+         if((pdbfp=fopen(maln_ptr->proname[numPdb],"r"))==NULL)
+         {
+            fprintf(stderr,"Unable to open %s for reading\n",
+                    maln_ptr->proname[numPdb]);
+            return(1);
+         }
+         
+         /* Read them and get the data                                  */
+         if((pdb[numPdb] = blReadPDB(pdbfp, &natoms[numPdb])) == NULL)
+         {
+            fprintf(stderr,"No atoms read from PDB file: %s\n",
+                    maln_ptr->proname[numPdb]);
+            return(1);
+         }
+         
+         fclose(pdbfp);
+      }
 
-	  /*Read them and get the data*/
-	  if((pdb[numPdb] = ReadPDB(pdbfp,&natoms[numPdb])) == NULL)
-	    {
-	      fprintf(stderr,"No atoms read from PDB \
-file: %s\n",maln_ptr->proname[numPdb]);
-	      return(1);
-	      }
-	  
-	  fclose(pdbfp);
-	  
-	  }
-      /* Print the current zones if required             */               
+      /* Print the current zones if required                            */
       if(gVerbose)
-	{
-	  printf("SSAP Zones:\n");
-	  WriteTextOutput(zones, &numProts);
-	}
-       /* Now call the routine to do the core definition                 */
+      {
+         printf("SSAP Zones:\n");
+         WriteTextOutput(zones, &numProts);
+      }
+      
+      /* Now call the routine to do the core definition                 */
       DefineCore(pdb, zones, maln_ptr, dcut);
-
+      
       if(gVerbose)
-	{
-	  printf("\nCore before zone merging:\n");
-	  WriteTextOutput(zones, &numProts);
-	}
+      {
+         printf("\nCore before zone merging:\n");
+         WriteTextOutput(zones, &numProts);
+      }
+      
       /* Now remove any zones which are subsets of other zones and merge
          overlapping zones
       */
       zones = MergeZones(zones, numProts);
+      
       /* Finally write the output file which lists residues in the 
          structural core and optionally write PDB files with the cores
          flagged
       */
       if(gVerbose)
-	{
+      {
          printf("\nFinal Zones:\n");
          WriteTextOutput(zones, &numProts);
-	}
-
+      }
+      
       if(gDoOutput)
-	{
-	  /*WRITE OUTPUT FILES FOR EACH PDB IN THE CORA ALIGNMENT*/
-	}
+      {
+         /*WRITE OUTPUT FILES FOR EACH PDB IN THE CORA ALIGNMENT*/
+      }
    }
    else
    {
@@ -286,32 +281,18 @@ BOOL ParseCmdLine(int argc, char **argv, char *corafile, REAL *dcut)
       return(FALSE);
    while(argc)
    {
-     if (argv[0][0] == '-')
-       {
-	switch(argv[0][1])
+      if (argv[0][0] == '-')
+      {
+         switch(argv[0][1])
          {
-
-	   case 'd':
+         case 'd':
             argc--;
             argv++;
             sscanf(argv[0],"%lf",dcut);
             break;
-	   
-	   case 'p':
-	     gDoOutput = TRUE;
-	     break;
-	   
-	    /*case 'p':
-            argc--;
-            argv++;
-            strcpy(outpdb1, argv[0]);
+         case 'p':
+            gDoOutput = TRUE;
             break;
-         case 'q':
-            argc--;
-            argv++;
-            strcpy(outpdb2, argv[0]);
-            break;*/
-
          case 'v':
             gVerbose = TRUE;
             break;
@@ -328,29 +309,18 @@ BOOL ParseCmdLine(int argc, char **argv, char *corafile, REAL *dcut)
       }
       else
       {
-         /* Check that there is  only 1 arguments left             */
+         /* Check that there is  only 1 arguments left                  */
          if(argc < 1 || argc > 1)
             return(FALSE);
          
-         /* Copy it                                        */
+         /* Copy it                                                     */
          strcpy(corafile, argv[0]);
-
-/*       strcpy(pdbfile1, argv[1]); 
-         strcpy(pdbfile2, argv[2]);
-*/         
- /*      If there's another, copy it to outfile                      
-         argc -= 3;
-         argv += 3;
-         if(argc)
-	 strcpy(outfile, argv[0]);
- */          
+         
          return(TRUE);
       }
       argc--;
       argv++;
    }
-   
-  
 
    return(TRUE);
 }
@@ -367,342 +337,332 @@ BOOL ParseCmdLine(int argc, char **argv, char *corafile, REAL *dcut)
 */
 Malign *ReadCORA(FILE *fp)
 {
-  /* Define a pointer to point to the first address in the Structure*/
-  Malign *maln_ptr;
-  /* Define a pointer to point to the first address in Malndata (loop through)*/
-  Malndata  *d_ptr;          
-  Protdata *p_ptr;  
-/*  ZONE *zones; */
-  
-  int     count, count2, count3;
-  char    charbuf, buffer[1001], pdb[6];
-/*  char *p; */
-  
-  maln_ptr = new_Malign();
-  while(fgets( buffer, MAXBUFF, fp ), buffer[0] == '#');
-   /*read each line - maximum characters 100 - into the buffer string*/ 
- 
-  sscanf( buffer, "%d", &maln_ptr->procnt );
-  /*copy the number of proteins to parse out of the function*/
- 
-  sprintf(maln_ptr->title, "%s", "alnfile");
-  
-  for( count=0; count < maln_ptr->procnt; count++ ) 
-    {    /* loop throught the number of aligned proteins and store the names */
-      
+   /* Define a pointer to point to the first address in the Structure   */
+   Malign *maln_ptr;
+   /* Define a pointer to point to the first address in Malndata
+      (loop through)
+   */
+   Malndata *d_ptr;          
+   Protdata *p_ptr;  
+   /* ZONE *zones; */
+   
+   int  count, count2, count3;
+   char charbuf, buffer[1001], pdb[6];
+   /*  char *p; */
+   
+   maln_ptr = new_Malign();
+   while(fgets( buffer, MAXBUFF, fp ), buffer[0] == '#');
+   
+   /* read each line - maximum characters 100 - into the buffer string  */
+   sscanf(buffer, "%d", &maln_ptr->procnt);
+   
+   /* copy the number of proteins to parse out of the function          */
+   sprintf(maln_ptr->title, "%s", "alnfile");
+   
+   /* loop throught the number of aligned proteins and store the names  */
+   for(count=0; count < maln_ptr->procnt; count++) 
+   { 
       fscanf(fp, "%s ", maln_ptr->proname[count]);
-    }
-  /*store the number of lines in the file*/
-  fscanf( fp, "%d", &maln_ptr->length ); 
-  
-  count = count2 = count3 = 0;
-  /*Reserve space for the structure Malndata - it returns a pointer 
-	 which is made equal to the pointer malndata_ptr within the 
-	structure Malign*/
-  (maln_ptr->malndata_ptr) = (Malndata*)malloc(sizeof(Malndata)); 	   
-  TEST(maln_ptr->malndata_ptr)   
-    
-    /* read through file saving data for selected chain */
-     /*loop through every line in the file*/
-    while ( count < maln_ptr->length ) 
-      { 	  
-	(maln_ptr->malndata_ptr) = (Malndata*)realloc(maln_ptr->malndata_ptr,(count+1)*sizeof(Malndata)); 
-	/*reallocate space of size Malndata make it*/
-	/*equal to the start of the structure*/
-	TEST(maln_ptr->malndata_ptr) 
-	 
-	  /*move the pointer along to the next space by setting d_ptr*/	  
-	  d_ptr = maln_ptr->malndata_ptr + count; 
-	
-	/* store values*/
-     fscanf( fp, "%d %d %d ", &d_ptr->alnpos, &d_ptr->conpos, &d_ptr->proaln );
-	
-	/*Reserve space for the structure Protdata- it returns a pointer 
-	 which is made equal to the pointer malndata_ptr within the 
-	 structure d*/
-	(d_ptr->protdata_ptr)=(Protdata*)malloc(sizeof(Protdata));
-	TEST(d_ptr->protdata_ptr)
-	  
-	  for( count2=0; count2 < maln_ptr->procnt; count2++ ) 
-	    {
-	      int number;
-	      char insert;
-	      
-(d_ptr->protdata_ptr)=(Protdata*)realloc(d_ptr->protdata_ptr,(count2+1)*sizeof(Protdata));
-	      TEST(d_ptr->protdata_ptr)
-		
-		
-	      
-	      p_ptr = d_ptr->protdata_ptr + count2;
-	      fscanf( fp, "%s %c %c ", pdb, &p_ptr->acid, &p_ptr->secstruct);
-	      insert = ' ';
-	      sscanf(pdb, "%d%c", &number, &insert);
-	      sprintf(p_ptr->pdb, "%d%c", number, insert);
-	     
-
-	    }
-	
-	fscanf( fp, "%c ", &d_ptr->consecstruc );
-	while(( charbuf = fgetc( fp )), charbuf != '\n' );
-	count++;
+   }
+   /* store the number of lines in the file                             */
+   fscanf(fp, "%d", &maln_ptr->length); 
+   
+   count = count2 = count3 = 0;
+   /* Reserve space for the structure Malndata - it returns a pointer 
+      which is made equal to the pointer malndata_ptr within the 
+      structure Malign
+   */
+   (maln_ptr->malndata_ptr) = (Malndata*)malloc(sizeof(Malndata));
+   TEST(maln_ptr->malndata_ptr);
+      
+   /* read through file saving data for selected chain                  */
+   /* loop through every line in the file                               */
+   while(count < maln_ptr->length) 
+   { 	  
+      /* reallocate space of size Malndata make it equal to the start
+         of the structure
+      */
+      (maln_ptr->malndata_ptr) =
+         (Malndata*)realloc(maln_ptr->malndata_ptr,
+                            (count+1)*sizeof(Malndata)); 
+      TEST(maln_ptr->malndata_ptr);
+      
+      /* move the pointer along to the next space by setting d_ptr      */
+      d_ptr = maln_ptr->malndata_ptr + count; 
+      
+      /* store values                                                   */
+      fscanf(fp, "%d %d %d ",
+             &d_ptr->alnpos, &d_ptr->conpos, &d_ptr->proaln );
+      
+      /* Reserve space for the structure Protdata- it returns a pointer 
+         which is made equal to the pointer malndata_ptr within the 
+         structure d
+      */
+      (d_ptr->protdata_ptr)=(Protdata*)malloc(sizeof(Protdata));
+      TEST(d_ptr->protdata_ptr);
+      
+      for(count2=0; count2 < maln_ptr->procnt; count2++) 
+      {
+         int  number;
+         char insert;
+         
+         (d_ptr->protdata_ptr)=
+            (Protdata*)realloc(d_ptr->protdata_ptr,
+                               (count2+1)*sizeof(Protdata));
+         TEST(d_ptr->protdata_ptr);
+         
+         p_ptr = d_ptr->protdata_ptr + count2;
+         fscanf(fp, "%s %c %c ", pdb, &p_ptr->acid, &p_ptr->secstruct);
+         insert = ' ';
+         sscanf(pdb, "%d%c", &number, &insert);
+         sprintf(p_ptr->pdb, "%d%c", number, insert);
       }
-  
-  return(maln_ptr);
+      
+      fscanf(fp, "%c ", &d_ptr->consecstruc);
+      while((charbuf = fgetc( fp )), charbuf != '\n' );
+      count++;
+   }
+   
+   return(maln_ptr);
 }
 
-/*****************************************************************************
+/*************************************************************************
    FINDS THE ZONES IN CORA
-******************************************************************************/
-
+*************************************************************************/
 ZONE *calcZone(Malign *maln_ptr)
 {
-  int count, count2;
-  Malndata  *d_ptr;
-  Malndata  *d_temp_ptr;
-  Malndata  *d_temp_sec_ptr;
-  Protdata *p_ptr;
-  Protdata *p_temp_ptr;
-  Protdata *p_temp_sec_ptr;
- 
-  ZONE *zones = NULL, *z;
-/*  int insertion = 0; */
-  int strands = 0;
-  int helix = 0; 
-  int no_ss = 0;
-  int startZone = 0;
-  int endZone = 0;
-  int protnum = 0;
-/*  int i = 0; */
-  int first = 0;
-  int second = 0;
+   int count, count2;
+   Malndata *d_ptr;
+   Malndata *d_temp_ptr;
+   Malndata *d_temp_sec_ptr;
+   Protdata *p_ptr;
+   Protdata *p_temp_ptr;
+   Protdata *p_temp_sec_ptr;
+   
+   ZONE *zones = NULL, *z;
+   /*  int insertion = 0; */
+   int strands = 0;
+   int helix = 0; 
+   int no_ss = 0;
+   int startZone = 0;
+   int endZone = 0;
+   int protnum = 0;
+   /*  int i = 0; */
+   int first = 0;
+   int second = 0;
+   
+   /* Outer loop through each alignment position                        */
+   for(count2=0; count2 < maln_ptr->length; count2++) 
+   {
+      /* inner cycles through each protein                              */
+      for( count=0; count < maln_ptr->procnt; count++)
+      { 	
+         d_ptr = maln_ptr->malndata_ptr + count2;	    
+         p_ptr = d_ptr->protdata_ptr + count;
+         
+         if(p_ptr->secstruct == 'E')
+            strands = 1;
+         
+         if(p_ptr->secstruct == 'H')
+            helix = 1;
 
-   /* Outer loop through each alignment position*/
-  for( count2=0; count2 < maln_ptr->length; count2++) 
-    {
-       /*inner cycles through each protein*/
-	for( count=0; count < maln_ptr->procnt; count++)
-	  { 	
-	    
-	    d_ptr = maln_ptr->malndata_ptr + count2;	    
-	    p_ptr = d_ptr->protdata_ptr + count;
+         if(p_ptr->secstruct == '0')
+            no_ss = 1;
+      }
+      
+      /* IF THERE ARE NO HELICES, COILS                                 */
+      if ((strands == 1) && (no_ss == 0) && (helix == 0))
+      {
+         /* THIS IS THE START POSITION                                  */
+         startZone = count2;
+         /* while there are still only strands aligned and the end of
+            the file is not reached
+         */
+         while((strands == 1) && (no_ss == 0) && (helix == 0) 
+               && (count2 < maln_ptr->length))
+         {
+            /* go onto next alignment position                          */
+            count2++;
+            
+            /* loop through all prots at that alignment position        */
+            for (count=0; count < maln_ptr->procnt; count++)
+            {
+               d_ptr = maln_ptr->malndata_ptr + count2;	    
+               p_ptr = d_ptr->protdata_ptr + count;
+               if(p_ptr->secstruct == 'E')
+                  strands = 1;
 
-	    if(p_ptr->secstruct == 'E')
-	      {
-		strands = 1;
-	      }
-	     if(p_ptr->secstruct == 'H')
-	      {
-		helix = 1;
-	      }
-	     if(p_ptr->secstruct == '0')
-	      {
-		no_ss = 1;
-	      }
+               if(p_ptr->secstruct == 'H')
+                  helix = 1;
 
-	  }
+               if(p_ptr->secstruct == '0')
+                  no_ss = 1;
+            }
+         }
 
-	/*IF THERE ARE NO HELICES, COILS */
-	if ((strands == 1) && (no_ss == 0) && (helix == 0))
-	  {
-	    /*THIS IS THE START POSITION*/
-	    startZone = count2;
-	    /*while there are still only strands aligned*/
-	    /*and the end of the file is not reached*/
-	    while((strands == 1) && (no_ss == 0) && (helix == 0) 
-                                 && (count2 < maln_ptr->length))
-	      {
-		/*go onto next alignment position*/
-		count2++;
-		
-		/*loop through all prots at that alignment position*/
-		for ( count=0; count < maln_ptr->procnt; count++)
-		  {
-		    d_ptr = maln_ptr->malndata_ptr + count2;	    
-		    p_ptr = d_ptr->protdata_ptr + count;
-		    if(p_ptr->secstruct == 'E')
-		      {
-			strands = 1;
-		      }
-		    if(p_ptr->secstruct == 'H')
-		      {
-			helix = 1;
-		      }
-		    if(p_ptr->secstruct == '0')
-		      {
-			no_ss = 1;
-		      }
-		  }
-	      }
-	    /*when this is not true any more mark the end of the zone*/
-	    /*minus one as the program increments one beyond the 
-              zone to test it*/
-	  
-	    endZone = count2;
-	    endZone = endZone -1;
+         /* when this is not true any more mark the end of the zone
+            minus one as the program increments one beyond the 
+            zone to test it
+         */
+         endZone = count2;
+         endZone = endZone-1;
+      }
+      /* IF THERE ARE NO STRANDS, COILS                                 */
+      else if((strands == 0) && (no_ss == 0) && (helix == 1))
+      {
+         /* THIS IS THE START POSITION                                  */
+         startZone = count2;
+	 
+         /* while there are still only strands aligned and the end of
+            the file is not reached
+         */
+         while((strands == 0) && (no_ss == 0) && (helix == 1) 
+               && (count2 < maln_ptr->length))
+         {
+            /* increment alignment position                             */
+            count2++;
+            
+            /* loop through all prots at that alignment position        */
+            for(count=0; count < maln_ptr->procnt; count++)
+            {
+               d_ptr = maln_ptr->malndata_ptr + count2;	    
+               p_ptr = d_ptr->protdata_ptr + count;
+               if(p_ptr->secstruct == 'E')
+                  strands = 1;
 
-	  }
-	/*IF THERE ARE NO STRANDS, COILS */
-	else if ((strands == 0) && (no_ss == 0) && (helix == 1))
-	  {
-	    /*THIS IS THE START POSITION*/
-	    startZone = count2;
-	    
-	    /*while there are still only strands aligned*/
-	    /*and the end of the file is not reached*/
-	    while((strands == 0) && (no_ss == 0) && (helix == 1) 
-                                 && (count2 < maln_ptr->length))
-	      {
+               if(p_ptr->secstruct == 'H')
+                  helix = 1;
 
-		/*increment alignment position*/
-		count2++;
+               if(p_ptr->secstruct == '0')
+                  no_ss = 1;
+            }
+         }
 
-		/*loop through all prots at that alignment position*/
-		for ( count=0; count < maln_ptr->procnt; count++)
-		  {
-		    d_ptr = maln_ptr->malndata_ptr + count2;	    
-		    p_ptr = d_ptr->protdata_ptr + count;
-		    if(p_ptr->secstruct == 'E')
-		      {
-			strands = 1;
-		      }
-		    if(p_ptr->secstruct == 'H')
-		      {
-			helix = 1;
-		      }
-		    if(p_ptr->secstruct == '0')
-		      {
-			no_ss = 1;
-		      }
-		  }
+         /* when this is not true any more mark the end of the zone
+            minus one as the program increments one beyond the 
+            zone to test it
+         */
+         endZone = count2;
+         endZone = endZone -1;
+      }
+      
+      /* record the start and end residues into the zone array          */
+      if(startZone)
+      {
+         if(zones==NULL)
+         {
+            INITPREV(zones,ZONE);
+            z=zones;
+         }
+         else
+         {
+            ALLOCNEXTPREV(z,ZONE);
+         }
 
-	      }
-	    /*when this is not true any more mark the end of the zone*/
-	    /*minus one as the program increments one beyond the 
-              zone to test it*/
-	    endZone = count2;
-	    endZone = endZone -1;
-	    
-	  }
-
-
-	    /*record the start and end residues into the zone array*/
-	    if(startZone)
-	      {
-		
-		if(zones==NULL)
-		  {
-		    INITPREV(zones,ZONE);
-		    z=zones;
-		  }
-
-		else
-		  {
-		    ALLOCNEXTPREV(z,ZONE);
-		  }
-		if(z==NULL)
-		  {
-		    FREELIST(zones,ZONE);
-		    return(NULL);
-		  }
-
-		{
-		  int my_i;
-		  for(my_i=0; my_i<MAXMALNPNO; my_i++)
-		    {
-		      z->start[my_i] = (-1);
-		      z->end[my_i]   = (-1);
-		    }
-		}
-
-	       
-	   /*loop through the prots and record each resnum for start and end*/
-		for(protnum=0; protnum < maln_ptr->procnt; protnum++)
-		  {
-		    /*pointer to the start position*/
-		    d_temp_ptr = maln_ptr->malndata_ptr + startZone;
-		    p_temp_ptr = d_temp_ptr->protdata_ptr + protnum;
-		    
-		    d_temp_sec_ptr = maln_ptr->malndata_ptr + endZone; 
-		    p_temp_sec_ptr = d_temp_sec_ptr->protdata_ptr + protnum;
-		  
-		    first = atoi(p_temp_ptr->pdb);
-		    second = atoi(p_temp_sec_ptr->pdb);
-
-		    z->start[protnum] = first;
-		    z->end[protnum] = second;
-		  
-		  } 
-		
-	      }
-	  
-	
-	strands = 0; helix = 0; no_ss = 0;
-	startZone = 0;
-	endZone = 0;
-    }
-
-  return(zones);
+         if(z==NULL)
+         {
+            FREELIST(zones,ZONE);
+            return(NULL);
+         }
+         
+         {
+            int my_i;
+            for(my_i=0; my_i<MAXMALNPNO; my_i++)
+            {
+               z->start[my_i] = (-1);
+               z->end[my_i]   = (-1);
+            }
+         }
+	 
+         /* loop through the prots and record each resnum for start and
+            end
+         */
+         for(protnum=0; protnum < maln_ptr->procnt; protnum++)
+         {
+            /* pointer to the start position                            */
+            d_temp_ptr = maln_ptr->malndata_ptr + startZone;
+            p_temp_ptr = d_temp_ptr->protdata_ptr + protnum;
+            
+            d_temp_sec_ptr = maln_ptr->malndata_ptr + endZone; 
+            p_temp_sec_ptr = d_temp_sec_ptr->protdata_ptr + protnum;
+            
+            first = atoi(p_temp_ptr->pdb);
+            second = atoi(p_temp_sec_ptr->pdb);
+            
+            z->start[protnum] = first;
+            z->end[protnum] = second;
+         } 
+      }
+      
+      strands   = 0;
+      helix     = 0;
+      no_ss     = 0;
+      startZone = 0;
+      endZone   = 0;
+   }
+   
+   return(zones);
 }
+
 
 /************************************************************************/
 /*>BOOL DefineCore(FILE *outfp, PDB *pdb1, PDB *pdb2, ZONE *zones, 
                    REAL dcut)
-   -----------------------------------------------------------------------
-   Main routine to do core definition
-
-   14.11.96 Original   By: ACRM
-   06.12.96 Added handling of gInitialCut
+  -----------------------------------------------------------------------
+  Main routine to do core definition
+  
+  14.11.96 Original   By: ACRM
+  06.12.96 Added handling of gInitialCut
 */
 BOOL DefineCore(PDB **pdb, ZONE *zones, Malign *maln_ptr, REAL dcut)
 {
-   int  count = 0,
-        last  = 0,
-        iter  = 0,
-        protNum = 0,
+   int  count    = 0,
+        last     = 0,
+        iter     = 0,
+        protNum  = 0,
         numProts = 0,
         decrease = 0,
         natoms[MAXMALNPNO];
    REAL rm[3][3];
    PDB  *pdbca[MAXMALNPNO],
         **idx[MAXMALNPNO];
-  
-      /* Duplicate the PDB linked lists*/
+   
+   /* Duplicate the PDB linked lists                                    */
    for(protNum = 0; protNum< maln_ptr->procnt; protNum++)
-     {
-       if((pdbca[protNum] = DupePDB(pdb[protNum])) == NULL)
-	 {
-	   return(FALSE);
-	   for(decrease = protNum; decrease>1; decrease--)
-	     {
-	       FREELIST(pdbca[decrease],PDB);
-	     }
-	 }
-     }
-  
-   /* Reduce to CA only */
+   {
+      if((pdbca[protNum] = blDupePDB(pdb[protNum])) == NULL)
+      {
+         return(FALSE);
+         for(decrease = protNum; decrease>1; decrease--)
+         {
+            FREELIST(pdbca[decrease],PDB);
+         }
+      }
+   }
+   
+   /* Reduce to CA only                                                 */
    for(protNum = 0; protNum< maln_ptr->procnt; protNum++)
-     {                    
-       pdbca[protNum]= SelectCaPDB(pdbca[protNum]);
-       SetBValByZone(pdbca[protNum],zones,protNum);
-     }
-  
+   {                    
+      pdbca[protNum]= blSelectCaPDB(pdbca[protNum]);
+      SetBValByZone(pdbca[protNum],zones,protNum);
+   }
 
    count = CountCore(pdbca[0]);
-  
+   
    for(protNum = 0; protNum< maln_ptr->procnt; protNum++)
-     {
-       if((idx[protNum] = IndexPDB(pdbca[protNum], &natoms[protNum]))==NULL)
-	 {
-	   for(decrease = protNum; decrease>1; decrease--)
-	     {
-	       FREELIST(pdbca[decrease],PDB);
-	       return(FALSE);
-	     }
-	 }
-       
-     }
+   {
+      if((idx[protNum] = blIndexPDB(pdbca[protNum],
+                                    &natoms[protNum]))==NULL)
+      {
+         for(decrease = protNum; decrease>1; decrease--)
+         {
+            FREELIST(pdbca[decrease],PDB);
+            return(FALSE);
+         }
+      }
+   }
    numProts = maln_ptr->procnt;
-
+   
    if(gInitialCut)
    {
       for(protNum=1; protNum<numProts; protNum++)
@@ -711,53 +671,53 @@ BOOL DefineCore(PDB **pdb, ZONE *zones, Malign *maln_ptr, REAL dcut)
       }
       
       if(!DoCut(idx, natoms, numProts, zones, dcut*dcut))
-	return(FALSE);
-
+         return(FALSE);
+      
       count = CountCore(pdbca[0]);
-
+      
       if(gVerbose)
-	{
-	  printf("\nCore after removing residues > 3.0A:\n");
-	  WriteTextOutput(zones, &numProts);
-	}
+      {
+         printf("\nCore after removing residues > 3.0A:\n");
+         WriteTextOutput(zones, &numProts);
+      }
    }
    
    iter=0;
    
    while(last != count)
-     {
-        for(protNum=1; protNum<numProts; protNum++)
-        {
-           FitCaPDBBFlag(pdbca[0], pdbca[protNum], rm);
-        }
-        
-       UpdateBValues(idx, natoms, numProts, zones, dcut*dcut);
-       last = count;
-       count = CountCore(pdbca[0]);
-       if(++iter > MAXITER)
-	 {
-	   fprintf(stderr,"Warning: Maximum number of iterations \
+   {
+      for(protNum=1; protNum<numProts; protNum++)
+      {
+         FitCaPDBBFlag(pdbca[0], pdbca[protNum], rm);
+      }
+      
+      UpdateBValues(idx, natoms, numProts, zones, dcut*dcut);
+      last = count;
+      count = CountCore(pdbca[0]);
+      if(++iter > MAXITER)
+      {
+         fprintf(stderr,"Warning: Maximum number of iterations \
 (%d) exceeded!\n",MAXITER);
-	   break;
-	   }
-     }
-   
+         break;
+      }
+   }
    
    for(protNum = 0; protNum < maln_ptr->procnt; protNum++)
-     {
-       free(idx[protNum]);
-     }
+   {
+      free(idx[protNum]);
+   }
    
    return(TRUE);
 }
 
+
 /************************************************************************/
 /*>BOOL DoCut(PDB **idx1, int natom1, PDB **idx2, int natom2,
-              ZONE *zones, REAL cutsq)
-   ----------------------------------------------------------
-   Performs the initial cut of pairs which deviate by >3.0A
-
-   06.12.96 Original   By: ACRM
+  ZONE *zones, REAL cutsq)
+  ----------------------------------------------------------
+  Performs the initial cut of pairs which deviate by >3.0A
+  
+  06.12.96 Original   By: ACRM
 */
 BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
            ZONE *zones, REAL cutsq)
@@ -767,10 +727,9 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
         snum, snum2, snum3,
         starts[MAXMALNPNO], ends[MAXMALNPNO], offsets[MAXMALNPNO];
    BOOL split,
-        first,
         ok,
         lastIter;
-  
+   
    for(z=zones; z!=NULL; NEXT(z))
    {
       /* Look for the start of the zone                                 */
@@ -782,7 +741,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
                break;
          }
       }
-  
+      
       /* Look for the end of the zone                                   */
       for(snum=0; snum<nstruc; snum++)
       {
@@ -792,7 +751,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
                break;
          }
       }
-
+      
       /* Step through the zone to see if we are within the cutoff       */
       split = FALSE;
       for(snum=0; snum<nstruc; snum++)
@@ -814,7 +773,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          }
          if(lastIter)
             break;
-
+         
          /* Check all the pairwise distances are in range               */
          for(snum=0; snum<nstruc-1; snum++)
          {
@@ -865,7 +824,6 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
                break;
          }
          
-
          /* If the zone contains no pairs within 3.0A, mark it for
             deletion by setting all values to -9999
          */
@@ -881,8 +839,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
             /* There were some parts which are still required, but it's
                been modified, so we need to split the zones up
             */
-            first = TRUE;
-         
+            
             /* First see if we've lost residues from the start of the
                zone
             */
@@ -962,8 +919,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
                   }
                }
             }
-
-
+            
             /* See if the new zone is split                             */
             split = FALSE;
             for(snum=0; snum<nstruc; snum++)
@@ -979,8 +935,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
                if(split)
                   break;
             }
-
-
+            
             while(split)
             {
                /* Move the last sub-zone into a separate zone           */
@@ -1047,10 +1002,9 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
                   }
                }
                
-
                /* Test again to see if it's split                       */
                split = FALSE;
-
+               
                for(snum=0; snum<nstruc; snum++)
                {
                   for(i=starts[snum]; i<=ends[snum]; i++)
@@ -1068,7 +1022,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          }  /* If this zone was OK                                      */
       }  /* If the zone contained any splits                            */
    }  /* For each zone                                                  */
-      
+   
    return(TRUE);
 }
 
@@ -1078,7 +1032,7 @@ BOOL DoCut(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
    ------------------------------------------------------------------
    Update the B-values and the current zones by extending out from
    the secondary structure regions
-
+  
    14.11.96 Original   By: ACRM
    13.03.97 Now checks that residues are not already in a zone before
             adding them to the current zone. Fixes a problem at the
@@ -1092,7 +1046,6 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
    ZONE *z;
    int  snum, offset[MAXMALNPNO];
    BOOL lastIter;
-   
    
    for(z=zones; z!=NULL; NEXT(z))
    {
@@ -1148,7 +1101,7 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          }
          if(lastIter)
             break;
-
+         
          /* Now look at each pair of structures, if the distance between
             the atoms is > cutsq then end the loop
          */
@@ -1168,14 +1121,14 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          }
          if(lastIter)
             break;
-
+         
          /* Everything was OK, so mark these residues as part of a zone */
          for(snum=0; snum<nstruc; snum++)
          {
             idx[snum][offset[snum]]->bval = (REAL)10.0;
          }
       }  /* End of loop back from start of zone                         */
-
+      
       /* Bump the offsets back up by one so we are pointing to the first
          residue that was within the OK zone and update the zone starts
       */
@@ -1184,10 +1137,9 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          (offset[snum])++;
          z->start[snum] = idx[snum][offset[snum]]->resnum;
       }
-
+      
       /* ---- Repeat the above procedure but for the ends of zones ---- */
-
-         
+      
       /* Look for the end of the zone - store this in offset[] for each
          protein
       */
@@ -1204,7 +1156,7 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          atoms is within the cutoff. Keep going forward until an atom 
          pair is too far apart or we reach the end of one of the proteins
       */
-
+      
       /* Loop forever                                                   */
       lastIter = FALSE;
       for(;;)
@@ -1237,7 +1189,7 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          }
          if(lastIter)
             break;
-
+         
          /* Now look at each pair of structures, if the distance between
             the atoms is > cutsq then end the loop
          */
@@ -1257,14 +1209,14 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
          }
          if(lastIter)
             break;
-
+         
          /* Everything was OK, so mark these residues as part of a zone */
          for(snum=0; snum<nstruc; snum++)
          {
             idx[snum][offset[snum]]->bval = (REAL)10.0;
          }
       }  /* End of loop forwards from end of zone                       */
-
+      
       /* Bump the offsets back down by one so we are pointing to the last
          residue that was within the OK zone and update the zone ends
       */
@@ -1279,17 +1231,16 @@ void UpdateBValues(PDB **idx[MAXMALNPNO], int *natoms, int nstruc,
 
 /************************************************************************/
 /*>void SetBValByZone(PDB *pdb, ZONE *zones, int which)
-   ----------------------------------------------------
-   Set B-values to 10 if in the zones, otherwise to 0.0
-
-   14.11.96 Original   By: ACRM
+  ----------------------------------------------------
+  Set B-values to 10 if in the zones, otherwise to 0.0
+  
+  14.11.96 Original   By: ACRM
 */
 void SetBValByZone(PDB *pdb, ZONE *zones, int protNum)
 {
    PDB *p;
    ZONE *z;
-
-
+   
    for(p=pdb; p!=NULL; NEXT(p))
       p->bval = (REAL)0.0;
    
@@ -1304,22 +1255,23 @@ void SetBValByZone(PDB *pdb, ZONE *zones, int protNum)
    }
 }
 
+
 /************************************************************************/
 /*>BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
-   -------------------------------------------------------------
-   Input:   PDB  *ref_pdb     Reference PDB linked list
-   I/O:     PDB  *fit_pdb     Mobile PDB linked list
-   Output:  REAL rm[3][3]     Rotation matrix (May be input as NULL).
-   Returns: BOOL              Success
-
-   Fits two PDB linked lists using only the CA atoms of residues
-   flagged in the BVal column with a non-zero BValue (atoms not to be 
-   fitted have BVal set to 0).
-
-   Actually fits fit_pdb onto ref_pdb and also returns the rotation 
-   matrix. This may be NULL if these data are not required.
-
-   14.11.96 Original based on FitCaPDB()   By: ACRM
+  -------------------------------------------------------------
+  Input:   PDB  *ref_pdb     Reference PDB linked list
+  I/O:     PDB  *fit_pdb     Mobile PDB linked list
+  Output:  REAL rm[3][3]     Rotation matrix (May be input as NULL).
+  Returns: BOOL              Success
+  
+  Fits two PDB linked lists using only the CA atoms of residues
+  flagged in the BVal column with a non-zero BValue (atoms not to be 
+  fitted have BVal set to 0).
+  
+  Actually fits fit_pdb onto ref_pdb and also returns the rotation 
+  matrix. This may be NULL if these data are not required.
+  
+  14.11.96 Original based on FitCaPDB()   By: ACRM
 */
 BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
 {
@@ -1334,41 +1286,39 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
    BOOL  RetVal;
    PDB   *ref_ca_pdb = NULL,
          *fit_ca_pdb = NULL;
-   /*         *p; */
-
+   
    /* First extract only the CA atoms of residues where BVal > 0.5      */
    if((ref_ca_pdb = DupeCAByBVal(ref_pdb))==NULL)
       RetVal = FALSE;
 
-
    if((fit_ca_pdb = DupeCAByBVal(fit_pdb))==NULL)
       RetVal = FALSE;
-
+   
    /* If we succeeded in building our CA PDB linked lists...            */
    if(RetVal)
    {
       /* Get the CofG of the CA structures and the original mobile      */
-      GetCofGPDB(ref_ca_pdb, &ref_ca_CofG);
-      GetCofGPDB(fit_ca_pdb, &fit_ca_CofG);
-   
+      blGetCofGPDB(ref_ca_pdb, &ref_ca_CofG);
+      blGetCofGPDB(fit_ca_pdb, &fit_ca_CofG);
+      
       /* Move them both to the origin                                   */
-      OriginPDB(ref_ca_pdb);
-      OriginPDB(fit_ca_pdb);
+      blOriginPDB(ref_ca_pdb);
+      blOriginPDB(fit_ca_pdb);
       /*
       for(p=fit_ca_pdb;  p!=NULL; NEXT(p))
-	{
-	  printf("%f  \n", p->x);
-	}
+      {
+         printf("%f  \n", p->x);
+      }
       */
+
       /* Create coordinate arrays, checking numbers match               */
-      NCoor = GetPDBCoor(ref_ca_pdb, &ref_coor);
-      if(GetPDBCoor(fit_ca_pdb, &fit_coor) != NCoor)
+      NCoor = blGetPDBCoor(ref_ca_pdb, &ref_coor);
+      if(blGetPDBCoor(fit_ca_pdb, &fit_coor) != NCoor)
       {
          RetVal = FALSE;
       }
       else
       {
-	
          /* Can't fit with fewer than 3 coordinates                     */
          if(NCoor < 3)
          {
@@ -1377,7 +1327,7 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
          else
          {
             /* Everything OK, go ahead with the fitting                 */
-            if(!matfit(ref_coor,fit_coor,RotMat,NCoor,NULL,FALSE))
+            if(!blMatfit(ref_coor,fit_coor,RotMat,NCoor,NULL,FALSE))
             {
                RetVal = FALSE;
             }
@@ -1387,12 +1337,11 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
                tvect.x = (-fit_ca_CofG.x);
                tvect.y = (-fit_ca_CofG.y);
                tvect.z = (-fit_ca_CofG.z);
-               TranslatePDB(fit_pdb, tvect);
-               ApplyMatrixPDB(fit_pdb, RotMat);
-               TranslatePDB(fit_pdb, ref_ca_CofG);
+               blTranslatePDB(fit_pdb, tvect);
+               blApplyMatrixPDB(fit_pdb, RotMat);
+               blTranslatePDB(fit_pdb, ref_ca_CofG);
             }
          }
-	  
       }
    }
    
@@ -1401,7 +1350,7 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
    if(fit_coor)   free(fit_coor);
    if(ref_ca_pdb) FREELIST(ref_ca_pdb, PDB);
    if(fit_ca_pdb) FREELIST(fit_ca_pdb, PDB);
-     
+   
    /* Fill in the rotation matrix for output, if required               */
    if(RetVal && (rm!=NULL))
    {
@@ -1409,16 +1358,17 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
          for(j=0; j<3; j++)
             rm[i][j] = RotMat[i][j];
    }
- 
+   
    return(RetVal);
 }
 
+
 /************************************************************************/
 /*>int CountCore(PDB *pdb)
-   -----------------------
-   Count how many residues are in the core regions
-
-   14.11.96 Original   By: ACRM
+  -----------------------
+  Count how many residues are in the core regions
+  
+  14.11.96 Original   By: ACRM
 */
 int CountCore(PDB *pdb)
 {
@@ -1432,19 +1382,20 @@ int CountCore(PDB *pdb)
    return(count);
 }
 
+
 /************************************************************************/
 /*>PDB *DupeCAByBVal(PDB *pdb)
-   ---------------------------
-   Extract the CAs with BVal > 0.0 from a PDB linked list into a new
-   linked list
-
-   14.11.96 Original   By: ACRM
+  ---------------------------
+  Extract the CAs with BVal > 0.0 from a PDB linked list into a new
+  linked list
+  
+  14.11.96 Original   By: ACRM
 */
 PDB *DupeCAByBVal(PDB *pdb)
 {
    PDB *out = NULL, 
        *p, *q;
-
+   
    for(p=pdb; p!=NULL; NEXT(p))
    {
       if(!strncmp(p->atnam,"CA  ",3) && (p->bval > (REAL)0.0))
@@ -1464,84 +1415,85 @@ PDB *DupeCAByBVal(PDB *pdb)
             return(NULL);
          }
          
-         CopyPDB(q,p);
+         blCopyPDB(q,p);
       }
    }
-
+   
    return(out);
 }
 
-
-
-
-Malign *new_Malign( void )
+Malign *new_Malign(void)
 {
-  Malign *maln;
-  ALLOC( maln, Malign );
-  TEST(maln);
-  clear_Malign(maln);
-  return(maln);
+   Malign *maln;
+   ALLOC( maln, Malign );
+   TEST(maln);
+   clear_Malign(maln);
+   return(maln);
 }
 
-void clear_Malign( Malign *m )
+void clear_Malign(Malign *m)
 {
-  int i;
-
-  m->procnt = 0;
-  m->length = 0;
-  *(m->title) = '\0';
-
-  for( i=0; i<MAXMALNPNO; i++ ) 
-    {
+   int i;
+   
+   m->procnt = 0;
+   m->length = 0;
+   *(m->title) = '\0';
+   
+   for(i=0; i<MAXMALNPNO; i++) 
+   {
       *(m->proname[i]) = '\0';
-    }
+   }
 }
 
 
 /************************************************************************/
 /*>void WriteTextOutput(FILE *fp, ZONE *zones)
-   -------------------------------------------
-   Writes the zones out in text format
-
-   14.11.96 Original   By: ACRM
-   06.12.96 Added check that zones have not been blanked out
+  -------------------------------------------
+  Writes the zones out in text format
+  
+  14.11.96 Original   By: ACRM
+  06.12.96 Added check that zones have not been blanked out
 */
 void WriteTextOutput(ZONE *zones, int *numProts)
 {
    ZONE *z;
-   int i = 0;
-
+   int  i = 0;
+   
    for(z=zones; z!=NULL; NEXT(z))
    {
-     if(z->start[0] > -9999)
-       {
+      if(z->start[0] > -9999)
+      {
 	 for(i = 0; i< *numProts; i++)
-	   {
-	     printf("%4d -%4d ",z->start[i],z->end[i]);
-	     if (i<*numProts)
-	       {
-		 printf(": ");
-	       }
-	   }
+         {
+            printf("%4d -%4d ",z->start[i],z->end[i]);
+            if (i<*numProts)
+            {
+               printf(": ");
+            }
+         }
 	 printf("\n");
-       }
+      }
    }
 }
 
+
 /************************************************************************/
 /*>void Usage(void)
-   ----------------
-   Prints a usage message
-
-   14.11.96 Original   By: ACRM
-   06.12.96 V1.1
-   23.01.97 V1.2
+  ----------------
+  Prints a usage message
+  
+  14.11.96 Original   By: ACRM
+  06.12.96 V1.1
+  23.01.97 V1.2
+  05.11.25 V1.8
 */
 void Usage(void)
 {
-   fprintf(stderr,"\nFindCore V1.2 (c) 1996-7, Dr. Andrew C.R. Martin, \
-UCL.\n");
-
+   fprintf(stderr,"\nFindCore V1.8 (c) 1996-2025, Prof. Andrew C.R. \
+Martin, UCL.\n");
+   fprintf(stderr,"Modifications for Cora by Gabby Marsden (nee Reeves) \
+           1999-2002\n");
+   
    fprintf(stderr,"\nUsage: findcore [-p out1.pdb] [-q out2.pdb] [-d \
 dcut] [-v] [-i]\n");
    fprintf(stderr,"                ssapfile in1.pdb in2.pdb \
@@ -1562,10 +1514,8 @@ in the initial\n");
    fprintf(stderr,"                definition of core zones\n");
    fprintf(stderr,"       ssapfile A vertical alignment file from \
 SSAP\n");
-
-
-
-   fprintf(stderr,"\nFindCore defines a protein structurally conserved \
+   
+   fprintf(stderr,"\nFindCora defines a protein structurally conserved \
 core according to the\n");
    fprintf(stderr,"method of Chothia (1996). Structurally equivalent \
 secondary structure\n");
@@ -1579,7 +1529,7 @@ residues are added.\n\n");
 insertion codes in\n");
    fprintf(stderr,"the PDB files. This is a limitation imposed by \
 SSAP.\n\n");
-
+   
    fprintf(stderr,"The PDB files should be given in the same order as \
 the columns appear\n");
    fprintf(stderr,"in the SSAP file.\n\n");
@@ -1588,17 +1538,17 @@ the columns appear\n");
 
 /************************************************************************/
 /*>ZONE *MergeZones(ZONE *zones, int numProts)
-   -------------------------------------------
-   Merges zones in the zone linked list of they overlap and removes zones
-   which are subsets of other zones
-
-   14.11.96 Original   By: ACRM
-   06.12.96 Removes zones marked for deletion
-   13.03.97 Added merging of abutting zones (required since change to
-            zone creation where residues not added to a zone if they
-            are already in another zone stops them from being subsets)
-   26.06.02 Generalized for multiple structures
-            Fixed bug in deleting zones
+  -------------------------------------------
+  Merges zones in the zone linked list of they overlap and removes zones
+  which are subsets of other zones
+  
+  14.11.96 Original   By: ACRM
+  06.12.96 Removes zones marked for deletion
+  13.03.97 Added merging of abutting zones (required since change to
+           zone creation where residues not added to a zone if they
+           are already in another zone stops them from being subsets)
+  26.06.02 Generalized for multiple structures
+           Fixed bug in deleting zones
 */
 ZONE *MergeZones(ZONE *zones, int numProts)
 {
@@ -1607,7 +1557,6 @@ ZONE *MergeZones(ZONE *zones, int numProts)
         doit;
    int  i;
    
-
    /* Remove null zones                                                 */
    while(zones->start[0] < -9998)
       zones = zones->next;
@@ -1625,7 +1574,7 @@ ZONE *MergeZones(ZONE *zones, int numProts)
          z = prev;
       }
    }
-
+   
    /* First merge overlapping zones                                     */
    while(!finished)
    {
@@ -1670,7 +1619,7 @@ ZONE *MergeZones(ZONE *zones, int numProts)
          }
       }
    }
-
+   
    /* Now remove redundant zones                                        */
    finished = FALSE;
    while(!finished)
@@ -1700,7 +1649,7 @@ ZONE *MergeZones(ZONE *zones, int numProts)
          }
       }
    }
-
+   
    /* Now merge abutting zones                                          */
    finished = FALSE;
    while(!finished)
@@ -1744,11 +1693,10 @@ ZONE *MergeZones(ZONE *zones, int numProts)
             zt=z->prev;
             free(z);
             z=zt;
-
+            
             finished = FALSE;
          }
       }
-      
    }
    
    return(zones);
@@ -1756,10 +1704,10 @@ ZONE *MergeZones(ZONE *zones, int numProts)
 
 /************************************************************************/
 /*>BOOL SubsetZone(ZONE *z, ZONE *zones)
-   -------------------------------------
-   Sees whether a zones is a zubset of another zone
-
-   14.11.96 Original   By: ACRM
+  -------------------------------------
+  Sees whether a zones is a zubset of another zone
+  
+  14.11.96 Original   By: ACRM
 */
 BOOL SubsetZone(ZONE *z, ZONE *zones)
 {
@@ -1774,30 +1722,6 @@ BOOL SubsetZone(ZONE *z, ZONE *zones)
             return(TRUE);
       }
    }
-
+   
    return(FALSE);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

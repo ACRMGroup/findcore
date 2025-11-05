@@ -1,0 +1,7 @@
+reference pdb1yqv_0P.mar
+mobile pdb8fab_0.mar
+align
+iter 1.0
+fit
+status
+write 8fab.fit
