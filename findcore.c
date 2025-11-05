@@ -3,36 +3,24 @@
    Program:    findcore
    File:       findcore.c
    
-   Version:    V1.4
-   Date:       26.06.02
+   Version:    V1.5
+   Date:       05.11.25
    Function:   Find core from 2 structures given the SSAP alignment
                file as a staring point
    
-   Copyright:  (c) Dr. Andrew C. R. Martin, UCL 1996-2002
-   Author:     Dr. Andrew C. R. Martin
+   Copyright:  (c) Prof. Andrew C. R. Martin, UCL 1996-2025
+   Author:     Prof. Andrew C. R. Martin
    Address:    Biomolecular Structure & Modelling Unit,
                Department of Biochemistry & Molecular Biology,
                University College,
                Gower Street,
                London.
                WC1E 6BT.
-   Phone:      (Home) +44 (0)1372 275775
-               (Work) +44 (0)171 419 3890
-   EMail:      INTERNET: martin@biochem.ucl.ac.uk
+   EMail:      andrew@bioinf.org.uk
                
 **************************************************************************
 
-   This program is not in the public domain, but it may be copied
-   according to the conditions laid out in the accompanying file
-   COPYING.DOC
-
-   The code may be modified as required, but any modifications must be
-   documented so that the person responsible can be identified. If someone
-   else breaks this code, I don't want to be blamed for code that does not
-   work! 
-
-   The code may not be sold commercially or included as part of a 
-   commercial product except as described in the file COPYING.DOC.
+   This program is licensed under the GPL.
 
 **************************************************************************
 
@@ -57,6 +45,7 @@
                   Fixed this by extending zones only if a residue
                   wasn't already in a zone.
    V1.4  26.06.02 Fixed bug in freeing zones in MergeZone()
+   V1.5  05.11.25 Updated for new BiopLib
 
 *************************************************************************/
 /* Includes
@@ -171,13 +160,13 @@ int main(int argc, char **argv)
       }
 
       /* Read data from the files                                       */
-      if((pdb1 = ReadPDB(pdb1fp,&natoms)) == NULL)
+      if((pdb1 = blReadPDB(pdb1fp,&natoms)) == NULL)
       {
          fprintf(stderr,"No atoms read from PDB file: %s\n",pdbfile1);
          return(1);
       }
       fclose(pdb1fp);
-      if((pdb2 = ReadPDB(pdb2fp,&natoms)) == NULL)
+      if((pdb2 = blReadPDB(pdb2fp,&natoms)) == NULL)
       {
          fprintf(stderr,"No atoms read from PDB file: %s\n",pdbfile2);
          return(1);
@@ -227,7 +216,7 @@ int main(int argc, char **argv)
             return(1);
          }
          SetBValByZone(pdb1, zones, 0);
-         WritePDB(pdb1fp,pdb1);
+         blWritePDB(pdb1fp, pdb1);
       }
       if(outpdb2[0])
       {
@@ -237,7 +226,7 @@ int main(int argc, char **argv)
             return(1);
          }
          SetBValByZone(pdb2, zones, 1);
-         WritePDB(pdb2fp,pdb2);
+         blWritePDB(pdb2fp, pdb2);
       }
    }
    else
@@ -482,30 +471,30 @@ BOOL DefineCore(FILE *outfp, PDB *pdb1, PDB *pdb2, ZONE *zones, REAL dcut)
         **idx2;
    
    /* Duplicate the PDB linked lists                                    */
-   if((pdbca1 = DupePDB(pdb1)) == NULL)
+   if((pdbca1 = blDupePDB(pdb1)) == NULL)
       return(FALSE);
-   if((pdbca2 = DupePDB(pdb2)) == NULL)
+   if((pdbca2 = blDupePDB(pdb2)) == NULL)
    {
       FREELIST(pdbca1,PDB);
       return(FALSE);
    }
    
    /* Reduce to CA only                                                 */
-   pdbca1 = SelectCaPDB(pdbca1);
-   pdbca2 = SelectCaPDB(pdbca2);
+   pdbca1 = blSelectCaPDB(pdbca1);
+   pdbca2 = blSelectCaPDB(pdbca2);
    
    SetBValByZone(pdbca1,zones,0);
    SetBValByZone(pdbca2,zones,1);
 
    count = CountCore(pdbca1);
 
-   if((idx1 = IndexPDB(pdbca1, &natom1))==NULL)
+   if((idx1 = blIndexPDB(pdbca1, &natom1))==NULL)
    {
       FREELIST(pdbca1,PDB);
       FREELIST(pdbca2,PDB);
       return(FALSE);
    }
-   if((idx2 = IndexPDB(pdbca2, &natom2))==NULL)
+   if((idx2 = blIndexPDB(pdbca2, &natom2))==NULL)
    {
       FREELIST(pdbca1,PDB);
       FREELIST(pdbca2,PDB);
@@ -564,7 +553,6 @@ BOOL DoCut(PDB **idx1, int natom1, PDB **idx2, int natom2,
         start1, end1,
         start2, end2;
    BOOL split,
-        first,
         ok;
    
    for(z=zones; z!=NULL; NEXT(z))
@@ -633,10 +621,8 @@ BOOL DoCut(PDB **idx1, int natom1, PDB **idx2, int natom2,
          {
             /* There were some parts which are still required, but it's
                been modified, so we need to split the zones up
-            */
-            first = TRUE;
          
-            /* First see if we've lost residues from the start of the
+               First see if we've lost residues from the start of the
                zone
             */
             while((idx1[start1]->bval == (REAL)0.0) ||
@@ -822,7 +808,7 @@ void UpdateBValues(PDB **idx1, int natom1, PDB **idx2, int natom2,
 */
 void SetBValByZone(PDB *pdb, ZONE *zones, int which)
 {
-   PDB *p;
+   PDB  *p;
    ZONE *z;
 
    for(p=pdb; p!=NULL; NEXT(p))
@@ -881,16 +867,16 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
    if(RetVal)
    {
       /* Get the CofG of the CA structures and the original mobile      */
-      GetCofGPDB(ref_ca_pdb, &ref_ca_CofG);
-      GetCofGPDB(fit_ca_pdb, &fit_ca_CofG);
+      blGetCofGPDB(ref_ca_pdb, &ref_ca_CofG);
+      blGetCofGPDB(fit_ca_pdb, &fit_ca_CofG);
       
       /* Move them both to the origin                                   */
-      OriginPDB(ref_ca_pdb);
-      OriginPDB(fit_ca_pdb);
+      blOriginPDB(ref_ca_pdb);
+      blOriginPDB(fit_ca_pdb);
       
       /* Create coordinate arrays, checking numbers match               */
-      NCoor = GetPDBCoor(ref_ca_pdb, &ref_coor);
-      if(GetPDBCoor(fit_ca_pdb, &fit_coor) != NCoor)
+      NCoor = blGetPDBCoor(ref_ca_pdb, &ref_coor);
+      if(blGetPDBCoor(fit_ca_pdb, &fit_coor) != NCoor)
       {
          RetVal = FALSE;
       }
@@ -904,7 +890,7 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
          else
          {
             /* Everything OK, go ahead with the fitting                 */
-            if(!matfit(ref_coor,fit_coor,RotMat,NCoor,NULL,FALSE))
+            if(!blMatfit(ref_coor,fit_coor,RotMat,NCoor,NULL,FALSE))
             {
                RetVal = FALSE;
             }
@@ -914,9 +900,9 @@ BOOL FitCaPDBBFlag(PDB *ref_pdb, PDB *fit_pdb, REAL rm[3][3])
                tvect.x = (-fit_ca_CofG.x);
                tvect.y = (-fit_ca_CofG.y);
                tvect.z = (-fit_ca_CofG.z);
-               TranslatePDB(fit_pdb, tvect);
-               ApplyMatrixPDB(fit_pdb, RotMat);
-               TranslatePDB(fit_pdb, ref_ca_CofG);
+               blTranslatePDB(fit_pdb, tvect);
+               blApplyMatrixPDB(fit_pdb, RotMat);
+               blTranslatePDB(fit_pdb, ref_ca_CofG);
             }
          }
       }
@@ -992,7 +978,7 @@ PDB *DupeCAByBVal(PDB *pdb)
             return(NULL);
          }
          
-         CopyPDB(q,p);
+         blCopyPDB(q,p);
       }
    }
 
@@ -1035,10 +1021,11 @@ void WriteTextOutput(FILE *fp, ZONE *zones)
    06.12.96 V1.1
    23.01.97 V1.2
    26.06.02 V1.4
+   05.11.25 V1.5
 */
 void Usage(void)
 {
-   fprintf(stderr,"\nFindCore V1.4 (c) 1996-2002, Dr. Andrew C.R. Martin, \
+   fprintf(stderr,"\nFindCore V1.5 (c) 1996-2025, Prof. Andrew C.R. Martin, \
 UCL.\n");
 
    fprintf(stderr,"\nUsage: findcore [-p out1.pdb] [-q out2.pdb] [-d \
