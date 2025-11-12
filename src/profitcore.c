@@ -137,6 +137,7 @@ int main(int argc, char **argv)
          if((pdb2 = blReadPDB(fpP2, &natoms))==NULL)
             Die("No atoms read from second PDB input file: ",
                 pdbFile2, 1);
+         
          if(!MapZones(mzones->zones, 0, pdb1))
             Die("No memory for mapping zones", NULL, 1);
          if(!MapZones(mzones->zones, 1, pdb2))
