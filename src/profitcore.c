@@ -4,8 +4,8 @@
    Program:    profitcore
    \file       profitcore.c
    
-   \version    V1.0
-   \date       05.11.25   
+   \version    V1.1
+   \date       12.11.25   
    \brief      Identify protein core from ProFit iterative fit
    
    \copyright  (c) Prof Andrew C. R. Martin 2025
@@ -36,6 +36,7 @@
    Revision History:
    =================
 -  V1.0   05.11.25  Original   By: ACRM
+-  V1.1   12.11.25  Added multiple fitting (-m)
 
 *************************************************************************/
 /* Includes
@@ -75,7 +76,9 @@ void Die(char *msg, char *submsg, int status);
 void Usage(void);
 BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
                   char *pdbFile1, char *pdbFile2,
-                  char *outFile1, char *outFile2);
+                  char *outFile1, char *outFile2,
+                  BOOL *multi,    char *multiFile,
+                  char *extIn,    char *extOut);
 
 /************************************************************************/
 /*>int main(int argc, char **argv)
@@ -95,10 +98,15 @@ int main(int argc, char **argv)
         pdbFile1[MAXBUFF],
         pdbFile2[MAXBUFF],
         outFile1[MAXBUFF],
-        outFile2[MAXBUFF];
-
+        outFile2[MAXBUFF],
+        multiFile[MAXBUFF],
+        extIn[16],
+        extOut[16];
+   BOOL multi = FALSE;
+   
    if(ParseCmdLine(argc, argv, zoneFile, pdbFile1, pdbFile2,
-                   outFile1, outFile2))
+                   outFile1, outFile2, &multi, multiFile,
+                   extIn, extOut))
    {
       if((fp = fopen(zoneFile, "r"))==NULL)
          Die("Unable to open zones file: ", zoneFile, 1);
@@ -433,21 +441,33 @@ would\n");
    \param[out]    pdbFile2  The name of the 2nd PDB file
    \param[out]    outFile1  The name of the (optional) 1st output file
    \param[out]    outFile2  The name of the (optional) 2nd output file
+   \param[out]    multi     We are finding the core from multiple files
+   \param[out]    multiFile The name of the multi-fitting file
+   \param[out]    extIn     The extension of the multiple fitted PDB files
+   \param[out]    extOut    The extension of the multiple core PDB files
 
    Parses the command line
 
 -  05.11.25 Original   By: ACRM
+-  12.11.25 Added -m
 */
 BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
                   char *pdbFile1, char *pdbFile2,
-                  char *outFile1, char *outFile2)
+                  char *outFile1, char *outFile2,
+                  BOOL *multi,    char *multiFile,
+                  char *extIn,    char *extOut)
 {
+   BOOL gotFile  = FALSE;
    argc--;
    argv++;
 
-   zoneFile[0]    =
-      pdbFile1[0] = pdbFile2[0] =
-      outFile1[0] = outFile2[0] = '\0';
+   zoneFile[0]     =
+      pdbFile1[0]  = pdbFile2[0] =
+      outFile1[0]  = outFile2[0] =
+      multiFile[0] = '\0';
+   strcpy(extIn,  "fit");
+   strcpy(extOut, "cor");
+   multi = FALSE;
 
    while(argc)
    {
@@ -456,6 +476,13 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
          switch(argv[0][1])
          {
          case 'o':
+            if(multi)
+            {
+               fprintf(stderr,"\nError! You cannot mix -o with -m\n\n");
+               return(FALSE);
+            }
+            gotFile = TRUE;
+            
             switch(argv[0][2])
             {
             case '1':
@@ -470,6 +497,16 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
                return(FALSE);
             }
             break;
+         case 'm':
+            if(gotFile)
+            {
+               fprintf(stderr,"\nError! You cannot mix -o with -m\n\n");
+               return(FALSE);
+            }
+            *multi = TRUE;
+            argc--; argv++;
+            strcpy(multiFile, argv[0]);
+            break;
          case 'h':
          default:
             return(FALSE);
@@ -477,13 +514,24 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
       }
       else
       {
-         /* Check that there are 3 arguments left                       */
-         if(argc != 3)
-            return(FALSE);
-         /* Copy the file names                                         */
-         strcpy(zoneFile, argv[0]);
-         strcpy(pdbFile1, argv[1]);
-         strcpy(pdbFile2, argv[2]);
+         if(*multi)
+         {
+            /* Check that there is 1 argument left                      */
+            if(argc != 1)
+               return(FALSE);
+            /* Copy the file names                                      */
+            strcpy(zoneFile, argv[0]);
+         }
+         else
+         {
+            /* Check that there are 3 arguments left                    */
+            if(argc != 3)
+               return(FALSE);
+            /* Copy the file names                                      */
+            strcpy(zoneFile, argv[0]);
+            strcpy(pdbFile1, argv[1]);
+            strcpy(pdbFile2, argv[2]);
+         }
          return(TRUE);
       }
       argc--; argv++;
