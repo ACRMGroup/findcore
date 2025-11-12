@@ -57,6 +57,11 @@ typedef struct _zone
         stopresid[2][16];
    struct _zone *next;
 } ZONE;
+typedef struct _mzone
+{
+   ZONE *zones;
+   struct _mzone *next;
+}  MZONE;
 
 #define MAXBUFF 320
 
@@ -67,7 +72,7 @@ typedef struct _zone
 /************************************************************************/
 /* Prototypes
 */
-ZONE *ReadProFitZones(FILE *fp);
+MZONE *ReadProFitZones(FILE *fp);
 void PrintZones(FILE *fp, ZONE *zones);
 BOOL MapZones(ZONE *zones, int strucNum, PDB *pdb);
 void AnnotateZones(ZONE *zones, int strucNum, PDB *pdb);
@@ -90,19 +95,19 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
 */
 int main(int argc, char **argv)
 {
-   ZONE *zones = NULL;
-   FILE *fp, *fpP1, *fpP2;
-   int natoms;
-   PDB *pdb1, *pdb2;
-   char zoneFile[MAXBUFF],
-        pdbFile1[MAXBUFF],
-        pdbFile2[MAXBUFF],
-        outFile1[MAXBUFF],
-        outFile2[MAXBUFF],
-        multiFile[MAXBUFF],
-        extIn[16],
-        extOut[16];
-   BOOL multi = FALSE;
+   MZONE *mzones = NULL;
+   FILE  *fp, *fpP1, *fpP2;
+   int   natoms;
+   PDB   *pdb1, *pdb2;
+   char  zoneFile[MAXBUFF],
+         pdbFile1[MAXBUFF],
+         pdbFile2[MAXBUFF],
+         outFile1[MAXBUFF],
+         outFile2[MAXBUFF],
+         multiFile[MAXBUFF],
+         extIn[16],
+         extOut[16];
+   BOOL  multi = FALSE;
    
    if(ParseCmdLine(argc, argv, zoneFile, pdbFile1, pdbFile2,
                    outFile1, outFile2, &multi, multiFile,
@@ -110,38 +115,48 @@ int main(int argc, char **argv)
    {
       if((fp = fopen(zoneFile, "r"))==NULL)
          Die("Unable to open zones file: ", zoneFile, 1);
-      if((zones = ReadProFitZones(fp))==NULL)
+      if((mzones = ReadProFitZones(fp))==NULL)
          Die("Unable to read zones from the zones file", NULL, 1);
-      
-      if((fpP1 = fopen(pdbFile1, "r"))==NULL)
-         Die("Unable to open first PDB input file: ", pdbFile1, 1);
-      if((pdb1 = blReadPDB(fpP1, &natoms))==NULL)
-         Die("No atoms read from first PDB input file: ", pdbFile1, 1);
-      
-      if((fpP2 = fopen(pdbFile2, "r"))==NULL)
-         Die("Unable to open second PDB input file: ", pdbFile2, 1);
-      if((pdb2 = blReadPDB(fpP2, &natoms))==NULL)
-         Die("No atoms read from second PDB input file: ", pdbFile2, 1);
-      
-      if(!MapZones(zones, 0, pdb1))
-         Die("No memory for mapping zones", NULL, 1);
-      if(!MapZones(zones, 1, pdb2))
-         Die("No memory for mapping zones", NULL, 1);
 
-      PrintZones(stdout, zones);
-
-      if(outFile1[0] != '\0')
+      if(multi)
       {
-         AnnotateZones(zones, 0, pdb1);
-         if(!WriteFile(pdb1, outFile1))
-            Die("Unable to write PDB file: ", outFile1, 1);
+         fprintf(stderr, "\n\n**** WRITE ME ****\n\n");
       }
-      
-      if(outFile2[0] != '\0')
+      else
       {
-         AnnotateZones(zones, 1, pdb2);
-         if(!WriteFile(pdb2, outFile2))
-            Die("Unable to write PDB file: ", outFile2, 1);
+         if((fpP1 = fopen(pdbFile1, "r"))==NULL)
+            Die("Unable to open first PDB input file: ",
+                pdbFile1, 1);
+         if((pdb1 = blReadPDB(fpP1, &natoms))==NULL)
+            Die("No atoms read from first PDB input file: ",
+                pdbFile1, 1);
+         
+         if((fpP2 = fopen(pdbFile2, "r"))==NULL)
+            Die("Unable to open second PDB input file: ",
+                pdbFile2, 1);
+         if((pdb2 = blReadPDB(fpP2, &natoms))==NULL)
+            Die("No atoms read from second PDB input file: ",
+                pdbFile2, 1);
+         if(!MapZones(mzones->zones, 0, pdb1))
+            Die("No memory for mapping zones", NULL, 1);
+         if(!MapZones(mzones->zones, 1, pdb2))
+            Die("No memory for mapping zones", NULL, 1);
+
+         PrintZones(stdout, mzones->zones);
+
+         if(outFile1[0] != '\0')
+         {
+            AnnotateZones(mzones->zones, 0, pdb1);
+            if(!WriteFile(pdb1, outFile1))
+               Die("Unable to write PDB file: ", outFile1, 1);
+         }
+         
+         if(outFile2[0] != '\0')
+         {
+            AnnotateZones(mzones->zones, 1, pdb2);
+            if(!WriteFile(pdb2, outFile2))
+               Die("Unable to write PDB file: ", outFile2, 1);
+         }
       }
    }
    else
@@ -181,7 +196,7 @@ void PrintZones(FILE *fp, ZONE *zones)
 
 
 /************************************************************************/
-/*>ZONE *ReadProFitZones(FILE *fp)
+/*>MZONE *ReadProFitZones(FILE *fp)
    -------------------------------
 *//**
 
@@ -191,14 +206,22 @@ void PrintZones(FILE *fp, ZONE *zones)
    paste from the ProFit status message
 
 -  05.11.25 Original   By: ACRM
+-  12.11.25 Now returns a list of multiple zones
+            i.e. a linked list of linked lists zones
 */
-ZONE *ReadProFitZones(FILE *fp)
+MZONE *ReadProFitZones(FILE *fp)
 {
-   ZONE *zones = NULL,
-        *z     = NULL;
-   char buffer[MAXBUFF],
-        junk[16];
-   int  start1, stop1, start2, stop2;
+   MZONE *mzones = NULL,
+         *mz     = NULL;
+   ZONE  *z     = NULL;
+   char  buffer[MAXBUFF],
+         junk[16];
+   int   start1, stop1, start2, stop2;
+
+   INIT(mzones, MZONE);
+   mz=mzones;
+   if(mz==NULL)
+      return(NULL);
    
    while(fgets(buffer, MAXBUFF, fp))
    {
@@ -209,10 +232,10 @@ ZONE *ReadProFitZones(FILE *fp)
                 &stop2) == 7)
       {
          /* Allocate next position in linked list */
-         if(zones == NULL)
+         if(mz->zones == NULL)
          {
-            INIT(zones, ZONE);
-            z=zones;
+            INIT(mz->zones, ZONE);
+            z=mz->zones;
          }
          else
          {
@@ -220,7 +243,7 @@ ZONE *ReadProFitZones(FILE *fp)
          }
          if(z==NULL)
          {
-            FREELIST(zones, ZONE);
+            FREELIST(mz->zones, ZONE);
             return(NULL);
          }
          
@@ -231,7 +254,7 @@ ZONE *ReadProFitZones(FILE *fp)
          z->stop[1]  = stop2;
       }
    }
-   return(zones);
+   return(mzones);
 }
 
 
