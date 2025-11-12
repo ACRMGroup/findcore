@@ -390,18 +390,25 @@ void Die(char *msg, char *submsg, int status)
    Usage message
 
 -  05.11.25 Original   By: ACRM
+-  12.11.25 Added -m
 */
 void Usage(void)
 {
-   printf("\nprofitcore V1.0 (c) 2025, Prof Andrew C.R. Martin, \
+   printf("\nprofitcore V1.1 (c) 2025, Prof Andrew C.R. Martin, \
 abYinformatics\n");
    printf("\nUsage: profitcore [-o1 file] [-o2 file] zoneFile \
 pdbfile1 pdbfile2\n");
+   printf("  -or-\n");    
+   printf("       profitcore [-m multiFile] [-xi inExt] [-xo outExt] \
+zoneFile \n");
    printf("\n");
 
    printf("       -o1 Specify first output PDB file\n");
    printf("       -o2 Specify second output PDB file\n");
-   printf("\n");
+   printf("\nMulti-mode\n");
+   printf("       -m  Specify the multi file as used by ProFit\n");
+   printf("       -xi Specify input extension for fitted files\n");
+   printf("       -xo Specify output extension for core PDB files\n");
 
    printf("profitcore converts the sequentially numbered zones output \
 by ProFit into\n");
@@ -429,8 +436,10 @@ would\n");
 
 /************************************************************************/
 /*>BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
-                     char *pdbFile1, char *pdbFile2,
-                     char *outFile1, char *outFile2)
+                  char *pdbFile1, char *pdbFile2,
+                  char *outFile1, char *outFile2,
+                  BOOL *multi,    char *multiFile,
+                  char *extIn,    char *extOut)
    --------------------------------------------------------
 *//**
 
@@ -449,7 +458,7 @@ would\n");
    Parses the command line
 
 -  05.11.25 Original   By: ACRM
--  12.11.25 Added -m
+-  12.11.25 Added -m and -x
 */
 BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
                   char *pdbFile1, char *pdbFile2,
@@ -467,7 +476,7 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
       multiFile[0] = '\0';
    strcpy(extIn,  "fit");
    strcpy(extOut, "cor");
-   multi = FALSE;
+   *multi = FALSE;
 
    while(argc)
    {
@@ -476,9 +485,10 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
          switch(argv[0][1])
          {
          case 'o':
-            if(multi)
+            if(*multi)
             {
-               fprintf(stderr,"\nError! You cannot mix -o with -m\n\n");
+               fprintf(stderr,"\nError! You cannot mix -o with \
+-x or -m\n\n");
                return(FALSE);
             }
             gotFile = TRUE;
@@ -492,6 +502,29 @@ BOOL ParseCmdLine(int argc, char **argv, char *zoneFile,
             case '2':
                argc--; argv++;
                strcpy(outFile2, argv[0]);
+               break;
+            default:
+               return(FALSE);
+            }
+            break;
+         case 'x':
+            if(gotFile)
+            {
+               fprintf(stderr,"\nError! You cannot mix -o with -x \
+or -m\n\n");
+               return(FALSE);
+            }
+            *multi = TRUE;
+            
+            switch(argv[0][2])
+            {
+            case 'i':
+               argc--; argv++;
+               strcpy(extIn, argv[0]);
+               break;
+            case 'o':
+               argc--; argv++;
+               strcpy(extOut, argv[0]);
                break;
             default:
                return(FALSE);
